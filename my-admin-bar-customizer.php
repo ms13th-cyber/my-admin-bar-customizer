@@ -2,7 +2,7 @@
 /*
 Plugin Name: My Admin Bar Customizer
 Description: 管理バーの項目を強制検知して非表示設定を行う
-Version: 1.0.0
+Version: 1.1.0
 Tested up to: 6.9.4
 Requires PHP: 8.3.23
 Author: masato shibuya(Image-box Co., Ltd.)
@@ -10,129 +10,139 @@ Author: masato shibuya(Image-box Co., Ltd.)
 
 if (!defined('ABSPATH')) exit;
 
+/**
+ * 1. 保存処理（最優先実行）
+ * 管理画面の初期化タイミングで保存を行うことで、管理バーの描画に間に合わせます。
+ */
+add_action('admin_init', function() {
+    if (isset($_POST['manual_save_admin_bar']) && check_admin_referer('admin_bar_save_action', 'admin_bar_save_nonce')) {
+        $hidden_nodes = isset($_POST['hidden_admin_bar_nodes']) ? array_map('sanitize_key', $_POST['hidden_admin_bar_nodes']) : array();
+        update_option('hidden_admin_bar_nodes', $hidden_nodes);
+
+        // 保存直後にリダイレクトをかけることで、ヘッダー等の表示崩れを防ぎ、完全に同期させます
+        if (isset($_GET['page']) && $_GET['page'] === 'admin-bar-settings') {
+            wp_redirect(admin_url('options-general.php?page=admin-bar-settings&settings-updated=true'));
+            exit;
+        }
+    }
+
+    // リセット処理
+    if (isset($_POST['reset_nodes']) && check_admin_referer('reset_nodes_action', 'reset_nodes_nonce')) {
+        delete_option('all_detected_nodes');
+        delete_option('hidden_admin_bar_nodes');
+        wp_redirect(admin_url('options-general.php?page=admin-bar-settings&reset=true'));
+        exit;
+    }
+});
+
+/**
+ * 管理メニュー登録
+ */
 add_action('admin_menu', function() {
     add_options_page('管理バー設定', '管理バー設定', 'manage_options', 'admin-bar-settings', 'render_admin_bar_settings_page');
 });
 
+/**
+ * 設定ページの表示
+ */
 function render_admin_bar_settings_page() {
+    if (isset($_GET['settings-updated'])) {
+        echo '<div class="updated"><p>設定を保存し、即座に反映しました。</p></div>';
+    }
+    if (isset($_GET['reset'])) {
+        echo '<div class="updated"><p>リストをリセットしました。</p></div>';
+    }
+
+    $all_nodes = get_option('all_detected_nodes', array());
+    $hidden_nodes = get_option('hidden_admin_bar_nodes', array());
     ?>
     <div class="wrap">
         <h1>管理バーの表示設定</h1>
-        <p><strong>非表示にしたい項目</strong>にチェックを入れてください。サイト名は自動で省略されます。</p>
-        <form method="post" action="options.php">
-            <?php
-            settings_fields('admin_bar_group');
-            do_settings_sections('admin-bar-settings');
-            submit_button();
-            ?>
+        <p><strong>非表示にしたい項目</strong>にチェックを入れてください。</p>
+
+        <form method="post" action="">
+            <?php wp_nonce_field('admin_bar_save_action', 'admin_bar_save_nonce'); ?>
+
+            <table class="form-table">
+                <tr>
+                    <th scope="row">メニュー一覧</th>
+                    <td>
+                        <?php if (empty($all_nodes)) : ?>
+                            <p>まだメニューが検知されていません。一度サイトの適当なページを表示してください。</p>
+                        <?php else : ?>
+                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                            <?php foreach ($all_nodes as $id => $data) :
+                                $parent = isset($data['parent']) ? $data['parent'] : '';
+                                if (!empty($parent) && !in_array($parent, array('top-secondary', 'root', 'wp-toolbar'))) continue;
+                                if (in_array($id, array('top-secondary', 'root', 'wp-toolbar'))) continue;
+
+                                $checked = in_array($id, $hidden_nodes) ? 'checked="checked"' : '';
+                                $title = (!empty($data['title'])) ? $data['title'] : $id;
+                            ?>
+                                <label style="display: block; background: #fff; padding: 10px; border: 1px solid #ccd0d4; border-radius: 4px; max-width: 500px;">
+                                    <input type="checkbox" name="hidden_admin_bar_nodes[]" value="<?php echo esc_attr($id); ?>" <?php echo $checked; ?>>
+                                    <span style="margin-left: 8px; font-weight: bold;"><?php echo esc_html($title); ?></span>
+                                    <code style="margin-left: 8px; color: #666;">(<?php echo esc_html($id); ?>)</code>
+                                </label>
+                            <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+            </table>
+
+            <p class="submit">
+                <input type="submit" name="manual_save_admin_bar" class="button button-primary" value="変更を保存">
+            </p>
         </form>
-        <hr>
+
+        <hr style="margin: 40px 0 20px;">
         <form method="post">
             <?php wp_nonce_field('reset_nodes_action', 'reset_nodes_nonce'); ?>
             <input type="submit" name="reset_nodes" class="button" value="検知済みリストをリセット" onclick="return confirm('リストをリセットしますか？');">
         </form>
     </div>
     <?php
-    if (isset($_POST['reset_nodes']) && check_admin_referer('reset_nodes_action', 'reset_nodes_nonce')) {
-        delete_option('all_detected_nodes');
-        echo "<div class='updated'><p>リストをリセットしました。一度ページをリロードしてください。</p></div>";
-    }
 }
-
-add_action('admin_init', function() {
-    // 以前の「非表示リスト」の名前に戻します
-    register_setting('admin_bar_group', 'hidden_admin_bar_nodes');
-    register_setting('admin_bar_group', 'all_detected_nodes');
-
-    add_settings_section('main_section', '非表示にするメニューの選択', null, 'admin-bar-settings');
-
-    global $wp_admin_bar;
-    if (!is_object($wp_admin_bar)) {
-        require_once(ABSPATH . WPINC . '/class-wp-admin-bar.php');
-        $wp_admin_bar = new WP_Admin_Bar;
-    }
-    do_action_ref_array('admin_bar_menu', array(&$wp_admin_bar));
-    sync_admin_bar_nodes_to_db();
-
-    $all_nodes = (array) get_option('all_detected_nodes', []);
-    $hidden_nodes = (array) get_option('hidden_admin_bar_nodes', []);
-
-    if (!empty($all_nodes)) {
-        foreach ($all_nodes as $id => $data) {
-            if (!is_array($data)) continue;
-
-            $parent = isset($data['parent']) ? $data['parent'] : '';
-            // 親が空、または主要なルート直下のみをリストに出す
-            if (empty($parent) || in_array($parent, ['top-secondary', 'root', 'wp-toolbar'])) {
-                if (in_array($id, ['top-secondary', 'root', 'wp-toolbar'])) continue;
-
-                add_settings_field(
-                    'field_' . $id,
-                    (isset($data['title']) && $data['title']) ? $data['title'] : $id,
-                    function($args) use ($hidden_nodes) {
-                        $id = $args['id'];
-                        $checked = in_array($id, $hidden_nodes) ? 'checked' : '';
-                        echo "<label><input type='checkbox' name='hidden_admin_bar_nodes[]' value='{$id}' {$checked}> <code>{$id}</code> を非表示にする</label>";
-                    },
-                    'admin-bar-settings',
-                    'main_section',
-                    ['id' => $id]
-                );
-            }
-        }
-    }
-});
-
-// スキャン処理
-function sync_admin_bar_nodes_to_db() {
-    global $wp_admin_bar;
-    if ( ! is_object( $wp_admin_bar ) ) return;
-    $nodes = $wp_admin_bar->get_nodes();
-    $all_nodes = (array) get_option('all_detected_nodes', []);
-    $updated = false;
-    if ($nodes) {
-        foreach ($nodes as $node) {
-            if (!isset($all_nodes[$node->id]) || !is_array($all_nodes[$node->id])) {
-                $all_nodes[$node->id] = [
-                    'title'  => $node->title ? strip_tags($node->title) : $node->id,
-                    'parent' => $node->parent
-                ];
-                $updated = true;
-            }
-        }
-        if ($updated) {
-            update_option('all_detected_nodes', $all_nodes);
-        }
-    }
-}
-add_action('admin_bar_menu', 'sync_admin_bar_nodes_to_db', 1);
 
 /**
- * 反映処理：サイト名省略 ＆ 非表示設定（引き算）
+ * 警告を出さないスキャン処理
+ */
+add_action('admin_bar_menu', function($wp_admin_bar) {
+    if (!is_object($wp_admin_bar)) return;
+    $nodes = $wp_admin_bar->get_nodes();
+    if (!$nodes) return;
+    $all_nodes = get_option('all_detected_nodes', array());
+    $updated = false;
+    foreach ($nodes as $node) {
+        if (!isset($all_nodes[$node->id])) {
+            $all_nodes[$node->id] = array(
+                'title'  => $node->title ? strip_tags($node->title) : $node->id,
+                'parent' => $node->parent
+            );
+            $updated = true;
+        }
+    }
+    if ($updated) update_option('all_detected_nodes', $all_nodes);
+}, 9999);
+
+/**
+ * 実際の非表示・サイト名省略処理
  */
 add_action('wp_before_admin_bar_render', function() {
     global $wp_admin_bar;
     if (!is_object($wp_admin_bar)) return;
-
-    $hidden_nodes = (array) get_option('hidden_admin_bar_nodes', []);
-    $nodes = $wp_admin_bar->get_nodes();
-    if (!$nodes) return;
-
-    foreach ($nodes as $node) {
-        // --- サイト名の省略処理 ---
+    $hidden_nodes = get_option('hidden_admin_bar_nodes', array());
+    foreach ($wp_admin_bar->get_nodes() as $node) {
         if ($node->id === 'site-name') {
-            $limit = 15; // 制限文字数
+            $limit = 15;
             $current_title = strip_tags($node->title);
             if (mb_strlen($current_title) > $limit) {
-                $new_title = mb_substr($current_title, 0, $limit) . '...';
                 $args = (array) $node;
-                $args['title'] = $new_title;
+                $args['title'] = mb_substr($current_title, 0, $limit) . '...';
                 $wp_admin_bar->add_node($args);
             }
         }
-
-        // --- 非表示処理（引き算方式） ---
-        // チェックが入っているIDだけを削除
         if (in_array($node->id, $hidden_nodes)) {
             $wp_admin_bar->remove_node($node->id);
         }
