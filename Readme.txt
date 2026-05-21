@@ -2,9 +2,9 @@
 Contributors: masato shibuya(Image-box Co., Ltd.)
 Tags: admin bar, toolbar, customize, ui, performance
 Requires at least: 5.0
-Tested up to: 6.9.4
+Tested up to: 7.0.0
 Requires PHP: 8.3.23
-Stable tag: 1.1.0
+Stable tag: 1.1.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -55,6 +55,9 @@ My Admin Bar Customizer は、WordPressの管理バー（ツールバー）を�
 * サイト名の省略ロジックは、管理バー上の表示のみを変更し、実際のサイト名設定には影響を与えません。
 
 == Changelog ==
+
+= 1.1.1 =
+* Wordpress7.0.0での動作確認。
 
 = 1.1.0 =
 * 保存時のデータ消失問題を解決する先行保存ロジック（admin_init）の実装

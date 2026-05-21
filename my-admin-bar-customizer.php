@@ -2,8 +2,8 @@
 /*
 Plugin Name: My Admin Bar Customizer
 Description: 管理バーの項目を強制検知して非表示設定を行う
-Version: 1.1.0
-Tested up to: 6.9.4
+Version: 1.1.1
+Tested up to: 7.0.0
 Requires PHP: 8.3.23
 Author: masato shibuya(Image-box Co., Ltd.)
 */
